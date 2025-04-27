@@ -1,0 +1,11 @@
+node_modules
+.next
+out
+
+# Environment variables
+-.env*.local
+
+# misc
+.DS_Store
+npm-debug.log*
++.env
