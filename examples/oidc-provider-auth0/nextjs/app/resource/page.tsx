@@ -1,53 +1,63 @@
-'use client'; // Keep client component for reading searchParams initially
+import { redirect } from 'next/navigation';
+import { auth0 } from '../../lib/auth0';
 
-import { useUser } from '@auth0/nextjs-auth0/client';
-import { useSearchParams } from 'next/navigation';
-import { useEffect } from 'react';
-
-export default function ResourcePage() {
-  const { user, error, isLoading } = useUser();
-  const searchParams = useSearchParams();
-  const ltiState = searchParams.get('lti_state');
-
-  // Note: The actual authentication trigger now happens in middleware
-  // This page just displays content once the middleware allows access.
-
-  useEffect(() => {
-    // You could potentially use ltiState here if needed after authentication,
-    // e.g., to fetch specific context, but it's primarily for the login flow.
-    if (ltiState) {
-      console.log('Resource Page: lti_state found in URL:', ltiState);
-    }
-  }, [ltiState]);
-
-  if (isLoading) return <div>Loading...</div>;
-  if (error) return <div>{error.message}</div>;
-
+// Helper function to render a simple page (can be moved to a separate component file)
+function MessagePage({ title, message }: { title: string; message: string }) {
   return (
-    <main style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
-      <h1>Protected Resource Page</h1>
-      <p>This page is protected and requires authentication via LTI launch.</p>
-      {user ? (
-        <div>
-          <h2>Welcome, {user.name}!</h2>
-          <p>You have successfully accessed the resource.</p>
-          <p>
-            Your LTI State during launch was:{' '}
-            {ltiState || 'Not found in current URL'}
-          </p>
-          <p>
-            <a href="/api/auth/logout">Logout</a>
-          </p>
-          <h3>Your User Info (from Auth0 session)</h3>
-          <pre style={{ background: '#eee', padding: '1rem' }}>
-            {JSON.stringify(user, null, 2)}
-          </pre>
-        </div>
-      ) : (
-        <p>
-          You do not seem to be logged in. Access should be initiated via LTI.
-        </p>
-      )}
-    </main>
+    <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
+      <h1>{title}</h1>
+      <p>{message}</p>
+      <p><a href="/">Go to Home</a></p>
+    </div>
   );
 }
+
+export default async function ResourcePage({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | string[] | undefined };
+}) {
+  const session = await auth0.getSession();
+  const ltiState = searchParams?.lti_state;
+  const ltiStateString = Array.isArray(ltiState) ? ltiState[0] : ltiState;
+
+  if (session) {
+    let message = `Welcome, ${session.user.name || session.user.nickname || 'user'}! You are already logged in.`;
+    if (ltiStateString) {
+      message += ` LTI State received: ${ltiStateString}.`;
+    }
+    // You might want to redirect to a profile page or the actual resource here
+    // instead of just showing a message.
+    return (
+      <MessagePage 
+        title="Session Active"
+        message={message}
+      />
+    );
+  }
+
+  // No session, proceed with LTI state check and login initiation
+  if (!ltiStateString) {
+    return (
+      <MessagePage 
+        title="Login Required"
+        message="No active session and no lti_state parameter found. Please log in or ensure lti_state is provided."
+      />
+    );
+    // Alternatively, redirect to a generic login page or home:
+    // return redirect('/?error=missing_lti_state_or_session');
+  }
+
+  const baseUrl = process.env.AUTH0_BASE_URL || 'http://localhost:3000';
+  const loginUrl = new URL('/auth/login', baseUrl);
+
+  loginUrl.searchParams.set('returnTo', '/resource'); // Or your desired returnTo after login
+  loginUrl.searchParams.set('login_hint', ltiStateString);
+  loginUrl.searchParams.set('connection', process.env.AUTH0_CONNECTION_NAME || 'edlucid-idp');
+  
+  redirect(loginUrl.toString());
+
+  // This part will not be reached due to the redirect or direct render,
+  // but Next.js expects a component to return JSX or null if not redirecting.
+  return null;
+} 
